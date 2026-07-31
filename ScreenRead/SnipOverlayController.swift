@@ -69,6 +69,10 @@ final class SnipOverlayController {
         }
         windows.removeAll()
         NSCursor.arrow.set()
+
+        // Hand focus back to whatever the user was working in, so the very next
+        // ⌘V pastes into the app they snipped from rather than into nothing.
+        NSApp.deactivate()
     }
 }
 

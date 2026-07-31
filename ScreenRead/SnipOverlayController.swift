@@ -14,13 +14,21 @@ final class SnipOverlayController {
     private var windows: [SnipOverlayWindow] = []
     private var keyMonitor: Any?
     private var completion: ((SnipSelection?) -> Void)?
-    private var previousActivationPolicy: NSApplication.ActivationPolicy?
+    /// Whoever was frontmost when the shortcut fired, so focus can go back there.
+    private var appToRestore: NSRunningApplication?
 
     var isPresenting: Bool { !windows.isEmpty }
 
     func present(snapshots: [DisplaySnapshot], completion: @escaping (SnipSelection?) -> Void) {
         guard !isPresenting else { return }
         self.completion = completion
+
+        // Note who is in front *before* activating, so the overlay can hand
+        // focus straight back when it closes.
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        appToRestore = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+            ? nil
+            : frontmost
 
         for snapshot in snapshots {
             let window = SnipOverlayWindow(snapshot: snapshot)
@@ -69,10 +77,35 @@ final class SnipOverlayController {
         }
         windows.removeAll()
         NSCursor.arrow.set()
+        restoreFocusToPreviousApp()
+    }
 
-        // Hand focus back to whatever the user was working in, so the very next
-        // ⌘V pastes into the app they snipped from rather than into nothing.
-        NSApp.deactivate()
+    /// Returns keyboard focus to the app the user snipped from, so the next ⌘V
+    /// lands there without them having to click the window first.
+    ///
+    /// `NSApp.deactivate()` alone is not enough: it says ScreenRead is no longer
+    /// active without saying who should be, which leaves focus nowhere.
+    ///
+    /// Order matters. Since macOS 14 an app may only activate another app while
+    /// it is *itself* active, so ScreenRead must still hold activation when it
+    /// makes the call — deactivating first would get the request denied. The hop
+    /// through the next run loop pass lets the overlay windows finish closing;
+    /// activating while they are still on screen can be ignored.
+    private func restoreFocusToPreviousApp() {
+        let target = appToRestore
+        appToRestore = nil
+
+        DispatchQueue.main.async {
+            guard let target, !target.isTerminated else {
+                NSApp.deactivate()
+                return
+            }
+            let activated = target.activate()
+            Log.info("Returning focus to \(target.localizedName ?? "previous app"): \(activated)")
+            if !activated {
+                NSApp.deactivate()
+            }
+        }
     }
 }
 

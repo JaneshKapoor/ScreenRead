@@ -1,28 +1,18 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject private var hotkeys = HotkeyController.shared
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var hasPermission = Permissions.hasScreenRecordingAccess
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                Image(systemName: "text.viewfinder")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("ScreenRead").font(.title2.weight(.semibold))
-                    Text("Snip anything, get the text on your clipboard.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+        VStack(alignment: .leading, spacing: 20) {
+            header
 
             Divider()
 
             LabeledContent("Shortcut") {
-                Text(Shortcut.default.displayName)
-                    .font(.system(.body, design: .monospaced))
+                ShortcutRecorderView(controller: hotkeys)
             }
 
             LabeledContent("Screen Recording") {
@@ -37,16 +27,35 @@ struct SettingsView: View {
                 }
             }
 
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, newValue in
-                    LaunchAtLogin.isEnabled = newValue
-                    launchAtLogin = LaunchAtLogin.isEnabled
-                }
+            LabeledContent("Startup") {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, newValue in
+                        LaunchAtLogin.isEnabled = newValue
+                        launchAtLogin = LaunchAtLogin.isEnabled
+                    }
+            }
 
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(24)
-        .frame(width: 420, height: 260)
-        .onAppear { hasPermission = Permissions.hasScreenRecordingAccess }
+        .frame(width: 460, height: 300, alignment: .topLeading)
+        .onAppear {
+            hasPermission = Permissions.hasScreenRecordingAccess
+            launchAtLogin = LaunchAtLogin.isEnabled
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 28))
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ScreenRead").font(.title2.weight(.semibold))
+                Text("Snip anything, get the text on your clipboard.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

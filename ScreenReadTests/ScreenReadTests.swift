@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Testing
 @testable import ScreenRead
 
@@ -143,8 +144,54 @@ struct CropTests {
 
 struct ShortcutTests {
     @Test func defaultShortcutIsCommandShiftT() {
-        #expect(Shortcut.default.displayName == "⌘⇧T")
         #expect(Shortcut.default.keyCode == 17) // kVK_ANSI_T
+        #expect(Shortcut.default.displayName == "⇧⌘T")
+    }
+
+    /// macOS writes modifiers in a fixed order regardless of press order.
+    @Test func rendersModifiersInSystemOrder() {
+        let all = Shortcut(
+            keyCode: 17,
+            carbonModifiers: UInt32(cmdKey | shiftKey | optionKey | controlKey)
+        )
+        #expect(all.displayName == "⌃⌥⇧⌘T")
+    }
+
+    @Test func rendersFunctionKeys() {
+        #expect(KeyCodeTranslator.displayName(for: UInt32(kVK_F5)) == "F5")
+        #expect(KeyCodeTranslator.displayName(for: UInt32(kVK_F13)) == "F13")
+    }
+
+    @Test func rendersNamedKeys() {
+        #expect(KeyCodeTranslator.displayName(for: UInt32(kVK_Space)) == "Space")
+        #expect(KeyCodeTranslator.displayName(for: UInt32(kVK_Escape)) == "⎋")
+        #expect(KeyCodeTranslator.displayName(for: UInt32(kVK_LeftArrow)) == "←")
+    }
+
+    /// A bare letter would swallow that key system-wide; a function key is a
+    /// legitimate one-press shortcut because it isn't used for typing.
+    @Test func requiresAModifierForTypingKeysOnly() {
+        #expect(Shortcut(keyCode: 17, carbonModifiers: 0).isRegisterable == false)
+        #expect(Shortcut(keyCode: 17, carbonModifiers: UInt32(cmdKey)).isRegisterable)
+        #expect(Shortcut(keyCode: UInt32(kVK_F5), carbonModifiers: 0).isRegisterable)
+    }
+
+    @Test func mapsAppKitModifiersToCarbon() {
+        let carbon = Shortcut.carbonModifiers(from: [.command, .option])
+        #expect(carbon == UInt32(cmdKey | optionKey))
+
+        let shortcut = Shortcut(keyCode: 17, carbonModifiers: carbon)
+        #expect(shortcut.eventModifiers == [.command, .option])
+    }
+
+    @Test func survivesEncodingRoundTrip() throws {
+        let original = Shortcut(keyCode: UInt32(kVK_F9), carbonModifiers: UInt32(controlKey))
+        let restored = try JSONDecoder().decode(
+            Shortcut.self,
+            from: try JSONEncoder().encode(original)
+        )
+        #expect(restored == original)
+        #expect(restored.displayName == "⌃F9")
     }
 }
 

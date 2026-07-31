@@ -1,20 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// A global keyboard shortcut, expressed with Carbon virtual key codes / modifier masks.
-struct Shortcut {
-    let keyCode: UInt32
-    let carbonModifiers: UInt32
-    let displayName: String
-
-    /// ⌘⇧T — the shortcut ScreenRead ships with.
-    static let `default` = Shortcut(
-        keyCode: UInt32(kVK_ANSI_T),
-        carbonModifiers: UInt32(cmdKey | shiftKey),
-        displayName: "⌘⇧T"
-    )
-}
-
 /// Registers a system-wide hotkey using the Carbon hotkey API.
 ///
 /// Carbon hotkeys are used deliberately: unlike a `CGEventTap` or

@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private let hotkeyManager = HotkeyManager()
+    private let hotkeys = HotkeyController.shared
     private let coordinator = CaptureCoordinator()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -13,21 +13,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setUpStatusItem()
 
-        hotkeyManager.onHotkeyPressed = { [weak self] in
+        hotkeys.onTrigger = { [weak self] in
             self?.coordinator.beginCapture()
         }
 
-        if !hotkeyManager.register(shortcut: .default) {
+        if !hotkeys.start() {
             presentHotkeyConflictWarning()
         }
 
-        // Ask for Screen Recording up front so the first ⌘⇧T actually works
+        // Ask for Screen Recording up front so the first capture actually works
         // instead of silently failing on a permission error.
         Permissions.requestScreenRecordingAccessIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        hotkeyManager.unregister()
+        hotkeys.stop()
     }
 
     // MARK: - Menu bar
@@ -50,13 +50,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let capture = NSMenuItem(
             title: "Capture Text",
             action: #selector(captureFromMenu),
-            keyEquivalent: "t"
+            keyEquivalent: ""
         )
-        capture.keyEquivalentModifierMask = [.command, .shift]
         capture.target = self
+        capture.tag = MenuTag.capture.rawValue
         menu.addItem(capture)
 
         menu.addItem(.separator())
+
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettings),
+            keyEquivalent: ","
+        )
+        settings.keyEquivalentModifierMask = [.command]
+        settings.target = self
+        menu.addItem(settings)
 
         let launchAtLogin = NSMenuItem(
             title: "Launch at Login",
@@ -92,12 +101,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum MenuTag: Int {
         case launchAtLogin = 100
         case permission = 101
+        case capture = 102
     }
 
     // MARK: - Actions
 
     @objc private func captureFromMenu() {
         coordinator.beginCapture()
+    }
+
+    @objc private func openSettings() {
+        SettingsWindowController.shared.show()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -128,16 +142,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func presentHotkeyConflictWarning() {
+        let shortcut = hotkeys.shortcut.displayName
         let alert = NSAlert()
-        alert.messageText = "Couldn't register ⌘⇧T"
+        alert.messageText = "Couldn't register \(shortcut)"
         alert.informativeText = """
-        Another app is already using ⌘⇧T as a global shortcut, so ScreenRead can't listen for it.
+        Another app is already using \(shortcut) as a global shortcut, so ScreenRead can't listen \
+        for it.
 
-        You can still capture from the menu bar icon. To use the shortcut, quit the conflicting app \
-        (or change its shortcut) and relaunch ScreenRead.
+        Pick a different combination in Settings, or capture from the menu bar icon instead.
         """
         alert.alertStyle = .warning
-        alert.runModal()
+        alert.addButton(withTitle: "Open Settings…")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn {
+            SettingsWindowController.shared.show()
+        }
     }
 }
 
@@ -145,6 +164,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if let item = menu.item(withTag: MenuTag.capture.rawValue) {
+            // Mirror whatever the shortcut is currently bound to.
+            let shortcut = hotkeys.shortcut
+            item.keyEquivalent = shortcut.menuKeyEquivalent ?? ""
+            item.keyEquivalentModifierMask = shortcut.eventModifiers
+            item.title = hotkeys.isRegistered
+                ? "Capture Text"
+                : "Capture Text (shortcut unavailable)"
+        }
         if let item = menu.item(withTag: MenuTag.launchAtLogin.rawValue) {
             item.state = LaunchAtLogin.isEnabled ? .on : .off
         }

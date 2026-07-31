@@ -2,7 +2,7 @@
 
 Snip any part of your screen, get the text on your clipboard.
 
-ScreenRead is a tiny macOS menu-bar app that does one thing: press **⌘⇧T**, drag a box
+ScreenRead is a tiny macOS menu-bar app that does one thing: press **⇧⌘T**, drag a box
 around anything on screen — a screenshot, a PDF, a video frame, an error dialog, a photo of
 a whiteboard — and the text inside it lands on your clipboard, ready to paste.
 
@@ -10,7 +10,7 @@ It's the macOS equivalent of PowerToys Text Extractor. Everything runs on-device
 Apple's Vision framework; nothing is uploaded anywhere.
 
 ```
-⌘⇧T  ──▶  screen freezes  ──▶  drag a box  ──▶  text is on your clipboard
+⇧⌘T  ──▶  screen freezes  ──▶  drag a box  ──▶  text is on your clipboard
 ```
 
 ---
@@ -46,7 +46,8 @@ You can check the current status any time from the menu bar item.
 
 | Action | How |
 | --- | --- |
-| Capture text | **⌘⇧T** from anywhere, or **Capture Text** in the menu bar |
+| Capture text | **⇧⌘T** from anywhere, or **Capture Text** in the menu bar |
+| Change the shortcut | **Settings…** in the menu bar, then click the shortcut and press a new combination |
 | Cancel | **Esc**, right-click, or a single click without dragging |
 | Start on login | **Launch at Login** in the menu bar |
 | Quit | **Quit ScreenRead** in the menu bar |
@@ -56,6 +57,24 @@ were copied. There is no window to dismiss and nothing to click through — past
 
 Multiple displays are all covered at once; the region you drag is captured from whichever
 display you started the drag on.
+
+### Changing the shortcut
+
+Open **Settings…** from the menu bar, click the shortcut button, and press the combination you
+want. It's stored immediately and survives restarts.
+
+Almost anything works — one modifier or four, letters, digits, punctuation, arrows, ↩, ⇥, Space.
+Two rules:
+
+- **Plain typing keys need at least one modifier.** Binding a bare `T` would swallow that key
+  system-wide and you could never type the letter again.
+- **Function keys work on their own**, since they aren't used for typing. `F5` alone is fine.
+
+If the combination is already taken by another app, ScreenRead says so and keeps your previous
+shortcut rather than leaving you with none.
+
+Key names are resolved against your *current* keyboard layout, so a non-QWERTY layout shows the
+key you actually pressed rather than the letter in that position on a US keyboard.
 
 ---
 
@@ -77,7 +96,8 @@ The pipeline:
 
 | Step | File |
 | --- | --- |
-| Global ⌘⇧T hotkey (Carbon — no Accessibility permission needed) | `HotkeyManager.swift` |
+| Global hotkey (Carbon — no Accessibility permission needed) | `HotkeyManager.swift` |
+| Shortcut storage, rendering and rebinding | `Shortcut.swift`, `HotkeyController.swift` |
 | Capture every display at native resolution | `ScreenCapturer.swift` |
 | Full-screen overlay + drag selection | `SnipOverlayController.swift` |
 | Crop, OCR, copy, confirm | `CaptureCoordinator.swift` |
@@ -134,17 +154,19 @@ macOS applies the permission at launch. Quit ScreenRead completely (menu bar ▸
 it again.
 
 **Permission gets asked for again after every rebuild.**
-Expected for locally-signed builds: macOS identifies the app partly by its code signature,
-which changes on every build. Installing to `/Applications` via `scripts/install.sh` and then
-leaving it alone keeps the grant stable. If it gets stuck, reset it with:
+This happens when the app is ad-hoc signed: macOS then identifies it by a hash of the binary,
+which changes on every build, so the grant silently stops matching. The project is configured
+to sign with an Apple Development certificate instead, giving a stable identity of bundle ID +
+certificate that survives rebuilds. If you fork this, point `CODE_SIGN_IDENTITY` at your own
+identity (`security find-identity -v -p codesigning`). To clear a stuck grant:
 
 ```bash
 tccutil reset ScreenCapture com.JaneshKapoor.ScreenRead
 ```
 
-**⌘⇧T does nothing.**
-Another app has claimed the shortcut — ScreenRead shows a warning at launch when this happens.
-Free it up in the other app, then relaunch. The menu bar **Capture Text** item always works.
+**The shortcut does nothing.**
+Another app has claimed it — ScreenRead warns at launch and offers to open Settings so you can
+pick a different combination. The menu bar **Capture Text** item always works regardless.
 
 **"No text found in selection".**
 The OCR engine found nothing legible. Very small text is the usual cause; try selecting a

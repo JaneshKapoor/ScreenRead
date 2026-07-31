@@ -1,84 +1,115 @@
-import Cocoa
-import Carbon
+import AppKit
+import Carbon.HIToolbox
 
-class HotkeyManager: ObservableObject {
+/// A global keyboard shortcut, expressed with Carbon virtual key codes / modifier masks.
+struct Shortcut {
+    let keyCode: UInt32
+    let carbonModifiers: UInt32
+    let displayName: String
+
+    /// ⌘⇧T — the shortcut ScreenRead ships with.
+    static let `default` = Shortcut(
+        keyCode: UInt32(kVK_ANSI_T),
+        carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayName: "⌘⇧T"
+    )
+}
+
+/// Registers a system-wide hotkey using the Carbon hotkey API.
+///
+/// Carbon hotkeys are used deliberately: unlike a `CGEventTap` or
+/// `NSEvent.addGlobalMonitorForEvents`, they work without the Accessibility
+/// permission and fire even when another app is frontmost.
+final class HotkeyManager {
+    var onHotkeyPressed: (() -> Void)?
+
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
-    private let hotKeyID = EventHotKeyID(signature: OSType(0x4B4F4D50), id: 1) // 'KOMP'
-    
-    var onHotkeyPressed: (() -> Void)?
-    
-    init() {
-        print("🔥 HotkeyManager: Initializing...")
-        registerHotkey()
-    }
-    
+    private var selfPtr: UnsafeMutableRawPointer?
+
+    private let hotKeyID = EventHotKeyID(signature: OSType(0x5343_5244), id: 1) // 'SCRD'
+
     deinit {
-        print("🔥 HotkeyManager: Deinitializing...")
-        unregisterHotkey()
+        unregister()
     }
-    
-    private func registerHotkey() {
-        print("🔥 HotkeyManager: Registering Cmd+Shift+T hotkey...")
-        
-        // Cmd + Shift + T
-        let keyCode = UInt32(kVK_ANSI_T)
-        let modifiers = UInt32(cmdKey | shiftKey)
-        
-        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: OSType(kEventHotKeyPressed))
-        
-        let eventHandlerCallback: EventHandlerProcPtr = { (nextHandler, theEvent, userData) -> OSStatus in
-            print("🔥 HotkeyManager: Event handler called!")
-            
-            guard let userData = userData else {
-                print("❌ HotkeyManager: No user data")
-                return OSStatus(eventNotHandledErr)
-            }
-            
-            let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
-            
-            var hotKeyID = EventHotKeyID()
-            let result = GetEventParameter(theEvent, OSType(kEventParamDirectObject), OSType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
-            
-            if result == noErr && hotKeyID.id == manager.hotKeyID.id {
-                print("✅ HotkeyManager: Hotkey matched! Triggering callback...")
+
+    /// - Returns: `true` if the shortcut was claimed successfully.
+    @discardableResult
+    func register(shortcut: Shortcut) -> Bool {
+        unregister()
+
+        var spec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: OSType(kEventHotKeyPressed)
+        )
+
+        let pointer = Unmanaged.passUnretained(self).toOpaque()
+        selfPtr = pointer
+
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData -> OSStatus in
+                guard let userData, let event else { return OSStatus(eventNotHandledErr) }
+
+                var firedID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    OSType(kEventParamDirectObject),
+                    OSType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &firedID
+                )
+                guard status == noErr else { return OSStatus(eventNotHandledErr) }
+
+                let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+                guard firedID.id == manager.hotKeyID.id else { return OSStatus(eventNotHandledErr) }
+
                 DispatchQueue.main.async {
                     manager.onHotkeyPressed?()
                 }
-                return OSStatus(noErr)
-            }
-            
-            return OSStatus(eventNotHandledErr)
+                return noErr
+            },
+            1,
+            &spec,
+            pointer,
+            &eventHandler
+        )
+
+        guard handlerStatus == noErr else {
+            Log.error("Failed to install hotkey event handler (status \(handlerStatus))")
+            return false
         }
-        
-        let installResult = InstallEventHandler(GetApplicationEventTarget(), eventHandlerCallback, 1, &eventSpec, Unmanaged.passRetained(self).toOpaque(), &eventHandler)
-        
-        if installResult == noErr {
-            print("✅ HotkeyManager: Event handler installed successfully")
-        } else {
-            print("❌ HotkeyManager: Failed to install event handler: \(installResult)")
+
+        let registerStatus = RegisterEventHotKey(
+            shortcut.keyCode,
+            shortcut.carbonModifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+
+        guard registerStatus == noErr else {
+            Log.error("Failed to register \(shortcut.displayName) (status \(registerStatus))")
+            unregister()
+            return false
         }
-        
-        let registerResult = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
-        
-        if registerResult == noErr {
-            print("✅ HotkeyManager: Hotkey registered successfully")
-        } else {
-            print("❌ HotkeyManager: Failed to register hotkey: \(registerResult)")
-        }
+
+        Log.info("Registered global shortcut \(shortcut.displayName)")
+        return true
     }
-    
-    private func unregisterHotkey() {
-        if let hotKeyRef = hotKeyRef {
-            let result = UnregisterEventHotKey(hotKeyRef)
-            print("🔥 HotkeyManager: Unregistered hotkey with result: \(result)")
+
+    func unregister() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
-        
-        if let eventHandler = eventHandler {
-            let result = RemoveEventHandler(eventHandler)
-            print("🔥 HotkeyManager: Removed event handler with result: \(result)")
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
             self.eventHandler = nil
         }
+        selfPtr = nil
     }
 }

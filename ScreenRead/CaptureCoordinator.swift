@@ -9,15 +9,10 @@ final class CaptureCoordinator {
     func beginCapture() {
         guard !isBusy, !overlay.isPresenting else { return }
 
-        guard Permissions.hasScreenRecordingAccess else {
-            // Fires the system prompt on first run; falls through to the
-            // explainer alert once macOS has stopped offering it.
-            if !Permissions.requestScreenRecordingAccessIfNeeded() {
-                Permissions.presentScreenRecordingAlert()
-            }
-            return
-        }
-
+        // Deliberately no preflight check here. CGPreflightScreenCaptureAccess
+        // goes stale after the user grants permission, so gating on it shows a
+        // "permission required" alert to users who just granted it. Attempt the
+        // capture and let the real failure be the signal.
         isBusy = true
         Task {
             defer { isBusy = false }

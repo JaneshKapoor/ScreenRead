@@ -115,7 +115,6 @@ final class SnipSelectionView: NSView {
     var onCancel: (() -> Void)?
 
     private let snapshot: DisplaySnapshot
-    private let backdrop: NSImage
     private var anchorPoint: CGPoint?
     private var selection: CGRect = .zero
     private var hasDragged = false
@@ -125,9 +124,7 @@ final class SnipSelectionView: NSView {
 
     init(snapshot: DisplaySnapshot) {
         self.snapshot = snapshot
-        self.backdrop = NSImage(cgImage: snapshot.image, size: snapshot.frame.size)
         super.init(frame: CGRect(origin: .zero, size: snapshot.frame.size))
-        wantsLayer = true
     }
 
     @available(*, unavailable)
@@ -141,19 +138,20 @@ final class SnipSelectionView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        backdrop.draw(in: bounds, from: .zero, operation: .copy, fraction: 1.0)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        draw(snapshot.image, into: bounds, context: context)
 
         NSColor.black.withAlphaComponent(0.45).setFill()
         bounds.fill()
 
         if selection.width >= 1, selection.height >= 1 {
-            // Punch the selection back through to full brightness.
-            backdrop.draw(
-                in: selection,
-                from: sourceRect(for: selection),
-                operation: .copy,
-                fraction: 1.0
-            )
+            // Punch the selection back through to full brightness. Reusing the
+            // same crop the OCR step will run on keeps the preview honest: what
+            // is lit up is exactly what gets read.
+            if let region = try? ScreenCapturer.crop(snapshot, toViewRect: selection) {
+                draw(region, into: selection, context: context)
+            }
 
             NSColor.controlAccentColor.setStroke()
             let border = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
@@ -166,15 +164,18 @@ final class SnipSelectionView: NSView {
         }
     }
 
-    /// `NSImage.draw(from:)` wants a bottom-left-origin rect in image space, but
-    /// this view is flipped — so the y axis has to be mirrored.
-    private func sourceRect(for rect: CGRect) -> CGRect {
-        CGRect(
-            x: rect.minX,
-            y: bounds.height - rect.maxY,
-            width: rect.width,
-            height: rect.height
-        )
+    /// Draws a CGImage the right way up inside a flipped view.
+    ///
+    /// `CGContext.draw(_:in:)` places the image's *bottom* edge at `rect.minY`.
+    /// In this view y grows downwards, so that puts the bottom of the image at
+    /// the top of the rect and the whole screen renders upside down. Mirroring
+    /// the y axis about the rect's horizontal centre line undoes it.
+    private func draw(_ image: CGImage, into rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.translateBy(x: 0, y: rect.minY + rect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: rect)
+        context.restoreGState()
     }
 
     private func drawSizeBadge() {

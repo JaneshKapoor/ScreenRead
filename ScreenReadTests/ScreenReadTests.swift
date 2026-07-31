@@ -147,3 +147,50 @@ struct ShortcutTests {
         #expect(Shortcut.default.keyCode == 17) // kVK_ANSI_T
     }
 }
+
+// MARK: - Overlay orientation
+
+/// Top half red, bottom half blue. CGContext draws y-up, so the higher rect is
+/// the top of the resulting image.
+private func makeHalvedImage(width: Int, height: Int) -> CGImage {
+    let context = CGContext(
+        data: nil, width: width, height: height,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: height / 2, width: width, height: height / 2))
+    context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height / 2))
+    return context.makeImage()!
+}
+
+@MainActor
+struct OverlayOrientationTests {
+    /// The overlay must render the snapshot the same way up as the real screen.
+    /// Drawing a CGImage into a flipped view without compensating mirrors it,
+    /// which shows the user an upside-down screen.
+    @Test func backdropIsNotVerticallyMirrored() throws {
+        let side = 100
+        let snapshot = DisplaySnapshot(
+            displayID: 1,
+            image: makeHalvedImage(width: side, height: side),
+            frame: CGRect(x: 0, y: 0, width: CGFloat(side), height: CGFloat(side)),
+            scale: 1
+        )
+
+        let view = SnipSelectionView(snapshot: snapshot)
+        view.frame = CGRect(x: 0, y: 0, width: CGFloat(side), height: CGFloat(side))
+
+        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+
+        // NSBitmapImageRep pixel coordinates are top-left origin.
+        let top = try #require(rep.colorAt(x: side / 2, y: 8))
+        let bottom = try #require(rep.colorAt(x: side / 2, y: side - 8))
+
+        #expect(top.redComponent > top.blueComponent, "top of the overlay should be the red half")
+        #expect(bottom.blueComponent > bottom.redComponent, "bottom of the overlay should be the blue half")
+    }
+}

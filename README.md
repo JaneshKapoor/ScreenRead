@@ -24,9 +24,10 @@ cd ScreenRead
 ```
 
 This builds a Release binary, installs it to `/Applications`, and launches it. A
-text-viewfinder icon appears in your menu bar.
+text-viewfinder icon appears in your menu bar, and a welcome window explains the app the
+first time it runs.
 
-Requires macOS 15.3+ and Xcode 16.4+ to build.
+Requires macOS 14+ and Xcode 16.4+ to build.
 
 ### Grant Screen Recording permission
 
@@ -50,6 +51,7 @@ You can check the current status any time from the menu bar item.
 | Change the shortcut | **Settings…** in the menu bar, then click the shortcut and press a new combination |
 | Cancel | **Esc**, right-click, or a single click without dragging |
 | Start on login | **Launch at Login** in the menu bar |
+| See the walkthrough again | **How ScreenRead Works…** in the menu bar |
 | Quit | **Quit ScreenRead** in the menu bar |
 
 The screen dims and freezes, you drag a box, and a small HUD confirms how many characters
@@ -120,6 +122,27 @@ so a two-column snippet doesn't come back interleaved.
 **Background agent.** The app is `LSUIElement` — no Dock icon, no app switcher entry, no
 window. It's a menu bar item and a hotkey, nothing more.
 
+**Sandboxed.** ScreenRead runs inside the App Sandbox with no exceptions: the entitlements
+file contains `com.apple.security.app-sandbox` and nothing else. Screen Recording is a TCC
+grant rather than an entitlement, and Carbon hotkeys, `SMAppService` and the pasteboard all
+work sandboxed, so nothing had to be traded away for it.
+
+---
+
+## Mac App Store
+
+The project is configured for App Store submission. `REVIEW_NOTES.md` holds the notes to
+paste into App Store Connect — worth reading before submitting, because a reviewer who
+launches a background agent without granting Screen Recording sees an app that appears to
+do nothing, which is the usual route to a Guideline 2.1 rejection.
+
+Two things still need doing by hand, because both are interactive:
+
+1. Sign in to **Xcode ▸ Settings ▸ Accounts** with the paid developer account.
+2. **Product ▸ Archive**, then **Distribute App ▸ App Store Connect**. Xcode swaps the
+   development certificate for a Mac App Store one and strips the `get-task-allow`
+   entitlement, which is present in local builds and must not reach the uploaded binary.
+
 ---
 
 ## Development
@@ -132,10 +155,17 @@ xcodebuild test -project ScreenRead.xcodeproj -scheme ScreenRead -destination 'p
 open ScreenRead.xcodeproj
 ```
 
-The test suite covers the two parts that are easy to get subtly wrong and hard to eyeball:
-OCR reading-order reconstruction, and the point→pixel crop math across Retina and non-Retina
-scale factors. Both run on synthetic in-memory images, so they need no permissions and no
+The test suite covers the parts that are easy to get subtly wrong and hard to eyeball: OCR
+reading-order reconstruction, the point→pixel crop math across Retina and non-Retina scale
+factors, shortcut encoding and display, overlay orientation, and welcome-window geometry.
+Everything runs on synthetic in-memory images, so the tests need no permissions and no
 display.
+
+One test renders the welcome window and reads it back through ScreenRead's own OCR, then
+asserts the result contains no debug descriptions. Interpolating a SwiftUI `Image` into a
+`String` compiles cleanly but prints `image(provider: SwiftUI.ImageProviderBox<…>)` — a
+shipped build said exactly that. Nothing in the type system catches it, so the rendered
+pixels are the only honest check.
 
 ### Logs
 
@@ -155,10 +185,16 @@ it again.
 
 **Permission gets asked for again after every rebuild.**
 This happens when the app is ad-hoc signed: macOS then identifies it by a hash of the binary,
-which changes on every build, so the grant silently stops matching. The project is configured
-to sign with an Apple Development certificate instead, giving a stable identity of bundle ID +
-certificate that survives rebuilds. If you fork this, point `CODE_SIGN_IDENTITY` at your own
-identity (`security find-identity -v -p codesigning`). To clear a stuck grant:
+which changes on every build, so the grant silently stops matching. The project uses automatic
+signing with an Apple Development certificate instead, giving a stable identity of bundle ID +
+certificate that survives rebuilds. If you fork this, set `DEVELOPMENT_TEAM` to your own team
+ID — that's the **OU** field of your certificate, not the ID in its common name:
+
+```bash
+security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+```
+
+To clear a stuck grant:
 
 ```bash
 tccutil reset ScreenCapture com.JaneshKapoor.ScreenRead

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Carbon.HIToolbox
 import Testing
 @testable import ScreenRead
@@ -192,6 +193,57 @@ struct ShortcutTests {
         )
         #expect(restored == original)
         #expect(restored.displayName == "⌃F9")
+    }
+}
+
+// MARK: - Onboarding window
+
+@MainActor
+struct OnboardingWindowTests {
+    /// The welcome window is opened during applicationDidFinishLaunching, before
+    /// SwiftUI has laid its content out. An earlier version built the window with
+    /// `NSWindow(contentViewController:)` and then replaced `styleMask`, which
+    /// threw away the content-derived size and left a 1×28pt sliver on screen —
+    /// visible, focusable, and completely empty.
+    @Test func windowIsBuiltAtItsFullContentSize() throws {
+        let hosting = NSHostingController(rootView: OnboardingView(onFinish: {}, onTryCapture: {}))
+        let window = OnboardingWindowController.makeWindow(contentViewController: hosting)
+
+        let expected = OnboardingWindowController.contentSize
+        #expect(window.contentLayoutRect.width == expected.width)
+        #expect(window.contentLayoutRect.height == expected.height)
+
+        // The title bar has to survive too: the sliver kept its 28pt of chrome
+        // and lost only the content, so checking the outer frame alone passes.
+        #expect(window.frame.height > expected.height)
+        #expect(window.styleMask.contains(.titled))
+        #expect(window.styleMask.contains(.closable))
+    }
+
+    /// Renders the welcome window and reads it back with the app's own OCR.
+    ///
+    /// Interpolating a SwiftUI `Image` into a `String` compiles, but prints the
+    /// struct's debug description rather than the symbol. Step 3 shipped for a
+    /// build reading "The image(provider: SwiftUI.ImageProviderBox<…>) icon at
+    /// the top of the screen", which is exactly the sort of thing App Review
+    /// rejects under Guideline 4.0 for unfinished UI. Nothing in the type system
+    /// catches it, so the rendered pixels are the only honest check.
+    @Test func onboardingTextContainsNoDebugDescriptions() throws {
+        let hosting = NSHostingController(rootView: OnboardingView(onFinish: {}, onTryCapture: {}))
+        let view = hosting.view
+        view.frame = NSRect(origin: .zero, size: OnboardingWindowController.contentSize)
+        view.layoutSubtreeIfNeeded()
+
+        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let image = try #require(rep.cgImage)
+
+        let text = try TextRecognizer.recognizeText(in: image)
+
+        #expect(!text.isEmpty, "the welcome window rendered no readable text at all")
+        for leak in ["ImageProviderBox", "SwiftUI.", "provider:", "Optional("] {
+            #expect(!text.contains(leak), "welcome window shows a debug description: \(leak)")
+        }
     }
 }
 

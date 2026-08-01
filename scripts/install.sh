@@ -29,6 +29,7 @@ if ! xcodebuild \
         -scheme "${APP_NAME}" \
         -configuration Release \
         -derivedDataPath "${BUILD_DIR}" \
+        -allowProvisioningUpdates \
         build > "${LOG_FILE}" 2>&1; then
     echo "!! Build failed. Last 30 lines:" >&2
     tail -30 "${LOG_FILE}" >&2

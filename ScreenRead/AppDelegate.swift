@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let hotkeys = HotkeyController.shared
     private let coordinator = CaptureCoordinator()
+    private let onboarding = OnboardingWindowController.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Background agent: no Dock icon, no app switcher entry.
@@ -24,6 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Ask for Screen Recording up front so the first capture actually works
         // instead of silently failing on a permission error.
         Permissions.requestScreenRecordingAccessIfNeeded()
+
+        onboarding.onTryCapture = { [weak self] in
+            self?.coordinator.beginCapture()
+        }
+        onboarding.showIfFirstLaunch()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -87,6 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let welcome = NSMenuItem(
+            title: "How ScreenRead Works…",
+            action: #selector(showOnboarding),
+            keyEquivalent: ""
+        )
+        welcome.target = self
+        menu.addItem(welcome)
+
         let about = NSMenuItem(title: "About ScreenRead", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
@@ -112,6 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
+    }
+
+    @objc private func showOnboarding() {
+        onboarding.show()
     }
 
     @objc private func toggleLaunchAtLogin() {

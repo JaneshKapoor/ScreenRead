@@ -2,9 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  Required for the Mac App Store. Nothing ScreenRead does needs a sandbox
+	  exception: Screen Recording is granted through TCC rather than an
+	  entitlement, Carbon hotkeys and SMAppService both work sandboxed, and the
+	  app never opens user files. Keep this list minimal — every extra
+	  entitlement is one more thing App Review will ask you to justify.
+	-->
 	<key>com.apple.security.app-sandbox</key>
-	<false/>
-	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 </dict>
 </plist>

@@ -37,13 +37,14 @@ enum Permissions {
 
         1. Open System Settings ▸ Privacy & Security ▸ Screen Recording
         2. Turn on ScreenRead
-        3. Relaunch ScreenRead — macOS only applies the change on next launch
+        3. Quit ScreenRead and open it again — macOS only applies the change on \
+        next launch
 
         If it is already switched on, step 3 is the one that's missing.
         """
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit & Relaunch")
+        alert.addButton(withTitle: "Quit ScreenRead")
         alert.addButton(withTitle: "Later")
 
         NSApp.activate(ignoringOtherApps: true)
@@ -51,28 +52,13 @@ enum Permissions {
         case .alertFirstButtonReturn:
             openScreenRecordingSettings()
         case .alertSecondButtonReturn:
-            relaunch()
+            // Quit only — the app cannot restart itself. Relaunching used to be
+            // handed to a detached `/bin/sh`, which the App Sandbox forbids, and
+            // the temporary-exception entitlement that would allow it is rejected
+            // by App Review. The user reopens ScreenRead themselves.
+            NSApp.terminate(nil)
         default:
             break
         }
-    }
-
-    /// Restarts the app so macOS re-evaluates the TCC grant.
-    ///
-    /// The relaunch is handed to a detached shell rather than done in-process:
-    /// starting a second instance before this one exits would leave the new
-    /// process unable to claim ⌘⇧T, since the old one still holds it.
-    static func relaunch() {
-        let path = Bundle.main.bundleURL.path
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 1; open \"\(path)\""]
-        do {
-            try task.run()
-        } catch {
-            Log.error("Relaunch failed: \(error.localizedDescription)")
-            return
-        }
-        NSApp.terminate(nil)
     }
 }
